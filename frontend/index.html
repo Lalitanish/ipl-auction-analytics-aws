@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101827">
+  <title>IPL Auction Analytics</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">🏏</span><div><strong>IPL ANALYTICS</strong><small>AUCTION INTELLIGENCE</small></div></div>
+      <nav>
+        <a class="nav-link active" href="#overview" data-view="overview"><span>▦</span> Overview</a>
+        <a class="nav-link" href="#players" data-view="players"><span>♟</span> Player explorer</a>
+        <a class="nav-link" href="#teams" data-view="teams"><span>◈</span> Team analysis</a>
+        <a class="nav-link" href="#best-xi" data-view="best-xi"><span>✦</span> Suggested Best XI</a>
+      </nav>
+      <div class="sidebar-note"><span class="status-dot"></span><span>Connected to FastAPI</span><small id="api-status">Checking API…</small></div>
+      <div class="sidebar-footer">IPL Auction Data<br><span>HTML · CSS · JavaScript · FastAPI</span></div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <div><p class="eyebrow">PLAYER PERFORMANCE / DATA EXPLORER</p><h1 id="page-title">Auction overview</h1><p class="subtitle">Explore player stats and compare squad strength from your dataset.</p></div>
+        <button class="refresh-btn" id="refresh-btn" type="button">↻ <span>Refresh data</span></button>
+      </header>
+
+      <section class="view active-view" id="view-overview">
+        <div class="metric-grid">
+          <article class="metric-card"><div class="metric-top"><span>Total players</span><span class="metric-icon violet">♟</span></div><strong id="total-players">—</strong><small>Rows in dataset</small></article>
+          <article class="metric-card"><div class="metric-top"><span>Teams represented</span><span class="metric-icon blue">◈</span></div><strong id="total-teams">—</strong><small>Distinct team labels</small></article>
+          <article class="metric-card"><div class="metric-top"><span>Capped players</span><span class="metric-icon green">✓</span></div><strong id="capped-players">—</strong><small>Where Capped = 1</small></article>
+          <article class="metric-card"><div class="metric-top"><span>Player categories</span><span class="metric-icon orange">▤</span></div><strong id="type-count">—</strong><small>Roles in this dataset</small></article>
+        </div>
+
+        <div class="panel-grid">
+          <section class="panel">
+            <div class="panel-heading"><div><h2>Player composition</h2><p>Players grouped by role</p></div><span class="panel-tag">ROLES</span></div>
+            <div id="role-chart" class="role-chart"><div class="loading">Loading role distribution…</div></div>
+          </section>
+          <section class="panel">
+            <div class="panel-heading"><div><h2>Dataset snapshot</h2><p>Quick view of the top performers</p></div><span class="panel-tag">LEADERS</span></div>
+            <div id="snapshot" class="snapshot"><div class="loading">Loading leaders…</div></div>
+          </section>
+        </div>
+
+        <section class="panel table-panel">
+          <div class="panel-heading"><div><h2>Top run scorers</h2><p>Ranked by total runs in the supplied CSV</p></div><a href="#players" class="text-link" data-view="players">Explore players →</a></div>
+          <div class="table-wrap"><table><thead><tr><th>PLAYER</th><th>TEAM</th><th>ROLE</th><th>RUNS</th><th>AVERAGE</th><th>STRIKE RATE</th></tr></thead><tbody id="top-runs-body"><tr><td colspan="6" class="loading">Loading players…</td></tr></tbody></table></div>
+        </section>
+      </section>
+
+      <section class="view" id="view-players">
+        <section class="panel">
+          <div class="panel-heading"><div><h2>Player explorer</h2><p>Search, filter and sort the full player list</p></div><span class="panel-tag" id="player-count">— PLAYERS</span></div>
+          <div class="filters">
+            <label class="search-field"><span>⌕</span><input id="search-input" type="search" placeholder="Search player, team or nationality…"></label>
+            <select id="type-filter" aria-label="Filter by role"><option value="all">All roles</option><option>Batter</option><option>Bowler</option><option>Allrounder</option><option>Keeper</option></select>
+            <select id="team-filter" aria-label="Filter by team"><option value="all">All teams</option></select>
+            <select id="sort-filter" aria-label="Sort players"><option value="Runs">Most runs</option><option value="Wickets">Most wickets</option><option value="Average">Highest average</option><option value="Strike_Rate">Highest strike rate</option><option value="Matches_Played">Most matches</option><option value="Economy">Lowest economy (ascending)</option></select>
+            <label class="check-filter"><input id="capped-filter" type="checkbox"> Capped only</label>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>PLAYER</th><th>TEAM</th><th>NATIONALITY</th><th>ROLE</th><th>MATCHES</th><th>RUNS</th><th>AVG</th><th>SR</th><th>WICKETS</th></tr></thead><tbody id="players-body"><tr><td colspan="9" class="loading">Loading players…</td></tr></tbody></table></div>
+          <div class="table-bottom"><span id="results-label">Showing players</span><button class="secondary-btn" id="show-more" type="button">Show more</button></div>
+        </section>
+      </section>
+
+      <section class="view" id="view-teams">
+        <section class="panel">
+          <div class="panel-heading"><div><h2>Team analysis</h2><p>Squad size, combined runs and wickets per team label</p></div><span class="panel-tag">SQUAD STATS</span></div>
+          <div id="team-cards" class="team-grid"><div class="loading">Loading team analysis…</div></div>
+          <div class="table-wrap"><table><thead><tr><th>TEAM</th><th>PLAYERS</th><th>CAPPED</th><th>TOTAL RUNS</th><th>TOTAL WICKETS</th><th>AVG PLAYER RUNS</th></tr></thead><tbody id="teams-body"></tbody></table></div>
+        </section>
+      </section>
+
+      <section class="view" id="view-best-xi">
+        <section class="hero-panel">
+          <div><p class="eyebrow">DATA-DRIVEN SUGGESTION</p><h2>Build your Best XI</h2><p>A simple ranking heuristic based on the notebook's role structure.</p></div>
+          <div class="formation"><span>3</span> BATTERS <b>·</b> <span>3</span> ALLROUNDERS <b>·</b> <span>4</span> BOWLERS <b>·</b> <span>1</span> KEEPER</div>
+        </section>
+        <section class="panel">
+          <div class="panel-heading"><div><h2>Suggested playing XI</h2><p id="xi-note">Selections are based on the uploaded dataset.</p></div><button class="secondary-btn" id="xi-refresh" type="button">Recalculate</button></div>
+          <div id="xi-list" class="xi-grid"><div class="loading">Building suggested XI…</div></div>
+          <p class="disclaimer">This is a transparent statistical shortlist, not an official team, auction price estimate, or trained prediction model. The number selected per role may be lower than 11 if the source data does not meet the notebook's thresholds.</p>
+        </section>
+      </section>
+      <footer>IPL Auction Analytics <span>•</span> Powered by FastAPI <span>•</span> Data is loaded from your CSV</footer>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
