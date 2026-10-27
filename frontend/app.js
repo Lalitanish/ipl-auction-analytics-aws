@@ -1,4 +1,4 @@
-const API = "";
+const API = "https://iplauctionanalytics.duckdns.org";
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const state = { offset: 0, limit: 100, total: 0, sort: "Runs", searchTimer: null };
