@@ -1,0 +1,137 @@
+
+name: Backend CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-deploy.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: backend-deployment
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Check Python syntax
+        run: python -m py_compile backend/main.py
+
+      - name: Check backend imports
+        working-directory: backend
+        run: |
+          python -c "import main; print('Backend import successful')"
+
+  deploy:
+    name: Deploy to EC2
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::135808921024:role/GitHubActionsIPLAuctionDeployRole
+          aws-region: ap-south-1
+
+      - name: Deploy backend through SSM
+        id: deploy
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids i-099df4fc6d34245d6 \
+            --document-name AWS-RunShellScript \
+            --comment "GitHub Actions IPL Auction Analytics backend deployment" \
+            --parameters 'commands=[
+              "set -eu",
+              "cd /home/ssm-user/ipl-auction-analytics",
+              "sudo -u ssm-user -H git -C /home/ssm-user/ipl-auction-analytics fetch origin main",
+              "sudo -u ssm-user -H git -C /home/ssm-user/ipl-auction-analytics merge --ff-only origin/main",
+              "cd /home/ssm-user/ipl-auction-analytics/backend",
+              "/home/ssm-user/ipl-auction-analytics/backend/venv/bin/python -m pip install -r requirements.txt",
+              "sudo systemctl restart ipl-auction-api",
+              "sudo systemctl is-active --quiet ipl-auction-api",
+              "curl --fail --silent --show-error http://127.0.0.1:8000/api/health"
+            ]' \
+            --query 'Command.CommandId' \
+            --output text)
+
+          echo "command_id=$COMMAND_ID" >> "$GITHUB_OUTPUT"
+          echo "SSM command submitted: $COMMAND_ID"
+
+          for attempt in $(seq 1 30); do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id i-099df4fc6d34245d6 \
+              --query 'Status' \
+              --output text 2>/dev/null || true)
+
+            echo "Deployment status: ${STATUS:-Pending}"
+
+            case "$STATUS" in
+              Success)
+                aws ssm get-command-invocation \
+                  --command-id "$COMMAND_ID" \
+                  --instance-id i-099df4fc6d34245d6 \
+                  --query 'StandardOutputContent' \
+                  --output text
+                exit 0
+                ;;
+              Failed|Cancelled|TimedOut)
+                aws ssm get-command-invocation \
+                  --command-id "$COMMAND_ID" \
+                  --instance-id i-099df4fc6d34245d6 \
+                  --query '[Status,StandardOutputContent,StandardErrorContent]' \
+                  --output json
+                exit 1
+                ;;
+            esac
+
+            sleep 10
+          done
+
+          echo "Timed out waiting for the SSM deployment command."
+          exit 1
+
+      - name: Verify public HTTPS health endpoint
+        run: |
+          set -e
+          for attempt in $(seq 1 12); do
+            if curl --fail --silent --show-error \
+              https://iplauctionanalytics.duckdns.org/api/health; then
+              echo
+              exit 0
+            fi
+            echo "Health check attempt $attempt failed; retrying..."
+            sleep 5
+          done
+          echo "Public HTTPS health check failed."
+          exit 1
