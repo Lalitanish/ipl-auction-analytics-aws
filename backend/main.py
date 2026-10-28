@@ -5,19 +5,21 @@ Dataset is loaded from IPLDataset.csv beside this file by default.
 Set IPL_DATA_PATH to override the CSV location.
 """
 from __future__ import annotations
-
 import os
+from io import BytesIO
 from pathlib import Path
 from typing import Optional
 
+import boto3
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = Path(__file__).resolve().parent
-DEFAULT_DATA_PATH = BASE_DIR / "IPLDataset.csv"
-DATA_PATH = Path(os.getenv("IPL_DATA_PATH", str(DEFAULT_DATA_PATH)))
+S3_BUCKET = os.getenv("IPL_S3_BUCKET", "ipl-auction-analytics-data-2026")
+S3_KEY = os.getenv("IPL_S3_KEY", "IPLDataset.csv")
+DATA_PATH = Path(os.getenv("IPL_DATA_PATH", str(BASE_DIR / "IPLDataset.csv")))
 
 REQUIRED_COLUMNS = [
     "Player Name", "Team", "Nationality", "Player_Type", "Capped",
@@ -38,30 +40,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 def load_dataset() -> pd.DataFrame:
-    """Read the CSV from a configurable path and normalize missing values."""
-    if not DATA_PATH.exists():
-        raise RuntimeError(
-            f"Dataset not found at {DATA_PATH}. Place IPLDataset.csv beside main.py "
-            "or set IPL_DATA_PATH to its full path."
+    """Load the dataset from private S3, or from a configured local CSV."""
+    if os.getenv("IPL_DATA_PATH"):
+        frame = pd.read_csv(DATA_PATH)
+    else:
+        response = boto3.client("s3").get_object(
+            Bucket=S3_BUCKET, Key=S3_KEY
         )
-    frame = pd.read_csv(DATA_PATH)
-    missing = [column for column in REQUIRED_COLUMNS if column not in frame.columns]
+        frame = pd.read_csv(BytesIO(response["Body"].read()))
+
+    frame.columns = [str(column).strip() for column in frame.columns]
+    missing = [c for c in REQUIRED_COLUMNS if c not in frame.columns]
     if missing:
         raise RuntimeError(f"CSV is missing required columns: {', '.join(missing)}")
-    frame.columns = [str(column).strip() for column in frame.columns]
-    frame["Player Name"] = frame["Player Name"].fillna("").astype(str).str.strip()
-    frame["Team"] = frame["Team"].fillna("Unknown").astype(str).str.strip()
-    frame["Nationality"] = frame["Nationality"].fillna("Unknown").astype(str).str.strip()
-    frame["Player_Type"] = frame["Player_Type"].fillna("Unknown").astype(str).str.strip()
-    numeric_columns = [c for c in REQUIRED_COLUMNS if c not in
-                       ["Player Name", "Team", "Nationality", "Player_Type"]]
-    for column in numeric_columns:
-        frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(0)
-    # Remove rows without a player name; preserve the analysis' numeric zero-fill approach.
-    return frame.loc[frame["Player Name"] != ""].reset_index(drop=True)
 
+    defaults = {
+        "Player Name": "",
+        "Team": "Unknown",
+        "Nationality": "Unknown",
+        "Player_Type": "Unknown",
+    }
+    for column, default in defaults.items():
+        frame[column] = frame[column].fillna(default).astype(str).str.strip()
+
+    for column in REQUIRED_COLUMNS:
+        if column not in defaults:
+            frame[column] = pd.to_numeric(frame[column], errors="coerce").fillna(0)
+
+    return frame.loc[frame["Player Name"] != ""].reset_index(drop=True)
 try:
     DATA = load_dataset()
     DATA_ERROR = None
@@ -92,7 +99,7 @@ def health():
     return {
         "status": "ok" if DATA_ERROR is None and not DATA.empty else "dataset_error",
         "dataset_rows": int(len(DATA)),
-        "dataset_path": str(DATA_PATH),
+        "dataset_path": os.getenv("IPL_DATA_PATH", f"s3://{S3_BUCKET}/{S3_KEY}"),
         "error": DATA_ERROR,
     }
 
